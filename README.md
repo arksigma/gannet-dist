@@ -39,5 +39,5 @@ gh workflow run release.yml -R arksigma/gannet-dist -f tag=vX.Y.Z
 3. Secret on **gannet** (source): `RELEASE_GITHUB_TOKEN` with permission to send
    a `repository_dispatch` to `gannet-dist`.
 4. Optional, for signed/notarised macOS builds: `APPLE_SIGNING_IDENTITY`,
-   `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `TEAM_ID`,
-   `APP_PASSWORD` on gannet-dist. Without them the app is ad-hoc signed.
+   `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`,
+   `APPLE_PASSWORD` on gannet-dist. Without them the app is ad-hoc signed.

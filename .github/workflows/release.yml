@@ -20,7 +20,7 @@
 #   HOMEBREW_TAP_GITHUB_TOKEN  - repo scope on arksigma/homebrew-tap
 # Optional (macOS signing + notarisation; ad-hoc signature otherwise):
 #   APPLE_SIGNING_IDENTITY, APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
-#   APPLE_ID, TEAM_ID, APP_PASSWORD
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_PASSWORD
 
 name: release
 
@@ -48,6 +48,38 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Cheap preflight so a bad token fails in seconds, not after an hour of
+  # builds. Runs on dry runs too, which is how the secrets are checked.
+  verify-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Source checkout token
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+        run: |
+          test "$(gh api "repos/$SOURCE_REPO" --jq .permissions.pull)" = true
+          echo "RELEASE_GITHUB_TOKEN can read $SOURCE_REPO"
+      - name: Tap token
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          test "$(gh api "repos/$TAP_REPO" --jq .permissions.push)" = true
+          echo "HOMEBREW_TAP_GITHUB_TOKEN can push to $TAP_REPO"
+      - name: Apple secrets present
+        env:
+          A1: ${{ secrets.APPLE_CERTIFICATE }}
+          A2: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          A3: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          A4: ${{ secrets.APPLE_ID }}
+          A5: ${{ secrets.APPLE_PASSWORD }}
+          A6: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          n=0; for v in A1 A2 A3 A4 A5 A6; do [ -n "${!v}" ] && n=$((n+1)); done
+          echo "$n of 6 APPLE_* secrets set"
+          if [ "$n" -ne 0 ] && [ "$n" -ne 6 ]; then
+            echo "::warning::partial Apple secrets: the app will be signed but maybe not notarised"
+          fi
+
   build:
     strategy:
       fail-fast: true
@@ -69,14 +101,8 @@ jobs:
             os: macos-latest
             platform: darwin_arm64
             zigbuild: false
+    needs: verify-secrets
     runs-on: ${{ matrix.os }}
-    env:
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      TEAM_ID: ${{ secrets.TEAM_ID }}
-      APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -100,6 +126,11 @@ jobs:
           fi
           crate_version="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p;}' Cargo.toml)"
           tag_version="${RELEASE_TAG#v}"
+          # A dry run may build any branch (e.g. master) to rehearse the pipeline.
+          if [[ "${{ inputs.dry_run || 'false' }}" == "true" && ! "$RELEASE_TAG" =~ ^v[0-9] ]]; then
+            echo "dry run of $RELEASE_TAG: using workspace version $crate_version"
+            tag_version="$crate_version"
+          fi
           if [[ "$tag_version" != "$crate_version" ]]; then
             echo "tag $RELEASE_TAG does not match workspace version $crate_version (run cargo xtask bump)" >&2
             exit 1
@@ -135,8 +166,30 @@ jobs:
 
       # Portable tarball (+ Gannet.app, ad-hoc or Developer-ID signed, on macOS;
       # AppDir/deb/rpm are skipped because their tools are absent here).
+      # Apple secrets reach only the macOS packaging step. An unset secret is an
+      # empty string, which sign-and-notarize.sh treats as "skip that stage".
       - name: Package
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_PASSWORD || '' }}
         run: cargo xtask dist --no-build --target ${{ matrix.target }}
+
+      - name: Verify macOS signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$(find target/dist -maxdepth 3 -name Gannet.app -type d | head -1)"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -E '^(Authority|TeamIdentifier|Signature)=' || true
+          if [ -n "${{ secrets.APPLE_ID }}" ]; then
+            xcrun stapler validate "$app"
+            spctl --assess --type execute --verbose=4 "$app"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
