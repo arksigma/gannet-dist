@@ -255,11 +255,6 @@ jobs:
               app "Gannet.app"
               binary "gannet"
               binary "#{appdir}/Gannet.app/Contents/MacOS/gannet-app", target: "gannet-app"
-
-              caveats <<~CAVEATS
-                Gannet.app is not notarised yet: on first launch right-click it and
-                choose Open, or install with --no-quarantine.
-              CAVEATS
             end
 
             on_linux do

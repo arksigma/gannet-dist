@@ -1,4 +1,11 @@
-# gannet releases
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/gannet-horizontal-logo-on-dark.svg">
+    <img alt="Gannet" src="assets/brand/gannet-horizontal-logo.svg" width="420">
+  </picture>
+</p>
+
+# Gannet releases
 
 Release artifacts for [Gannet](https://github.com/arksigma/gannet), a desktop
 API client with WebAssembly viewer plugins and an S3 browser that reads Bruno
@@ -10,8 +17,7 @@ Install via Homebrew (macOS and Linux):
 brew install --cask arksigma/tap/gannet
 ```
 
-The macOS app is not yet notarised: right-click `Gannet.app` → Open the first
-time, or `brew install --cask --no-quarantine arksigma/tap/gannet`. On Linux,
+The macOS app is signed with a Developer ID and notarised by Apple. On Linux,
 `gannet-app --install-desktop-entry` adds the application-menu entry and icons
 that a cask cannot install.
 

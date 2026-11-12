@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 700 700"><defs>
+  <radialGradient id="background" cx="36%" cy="18%" r="104%"><stop stop-color="#094a7c"/><stop offset="0.63" stop-color="#07345d"/><stop offset="1" stop-color="#002347"/></radialGradient>
+  <linearGradient id="headwhite" x1="0" y1="0" x2="0.65" y2="1"><stop stop-color="#ffffff"/><stop offset=".7" stop-color="#fbfdff"/><stop offset="1" stop-color="#d3e4f2"/></linearGradient>
+  <linearGradient id="gold" x1="0.07" y1="1" x2=".86" y2="0"><stop stop-color="#ffe29b"/><stop offset=".55" stop-color="#ffd985"/><stop offset="1" stop-color="#ffd074"/></linearGradient>
+  <linearGradient id="neck" x1=".07" y1=".45" x2="1" y2=".7"><stop stop-color="#ffffff"/><stop offset=".65" stop-color="#f6fbff"/><stop offset="1" stop-color="#cde0ee"/></linearGradient>
+  <linearGradient id="shadow" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f2f9ff"/><stop offset=".62" stop-color="#c6ddeb"/><stop offset="1" stop-color="#93b5d0"/></linearGradient>
+  <linearGradient id="beak" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#7eacd0"/><stop offset=".6" stop-color="#c2dcf0"/><stop offset="1" stop-color="#e9f4ff"/></linearGradient>
+  <linearGradient id="ring" x1="0" y1=".9" x2=".94" y2=".3"><stop stop-color="#45c5f6"/><stop offset=".35" stop-color="#6bd9ff"/><stop offset=".66" stop-color="#65d6ff"/><stop offset="1" stop-color="#74e1ff"/></linearGradient>
+  <linearGradient id="eye" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#15bbfc"/><stop offset="1" stop-color="#188bcd"/></linearGradient>
+</defs><g transform="translate(-274 -110)">
+<!-- The broad gannet silhouette -->
+<path d="M 333,491 C 326,427 347,348 385,287 C 421,229 470,198 516,191 C 573,181 615,195 673,224 C 748,263 842,294 900,325 C 830,312 741,300 646,317 C 614,281 584,271 558,281 C 460,292 369,405 333,491 Z" fill="url(#headwhite)"/>
+<!-- Golden gannet crown -->
+<path d="M 331,477 C 328,399 369,316 419,273 C 471,224 532,226 600,246 C 566,252 551,274 522,289 C 423,321 363,404 334,493 Z" fill="url(#gold)"/>
+<!-- Cream-to-white upper neck / breast -->
+<path d="M 335,491 C 365,387 463,306 552,282 C 593,267 618,281 646,316 C 578,330 542,372 538,396 C 531,421 552,442 587,467 C 660,517 709,559 744,587 C 677,568 621,533 564,537 C 483,535 441,594 427,662 C 406,644 394,612 392,590 C 380,610 379,620 367,601 C 352,578 340,534 335,491 Z" fill="url(#neck)"/>
+<!-- Cool blue swoosh shadow along inner neck -->
+<path d="M 367,599 C 357,557 380,496 412,464 C 447,432 497,415 543,414 C 531,432 531,445 557,463 C 518,455 467,467 431,501 C 401,525 389,574 395,621 C 386,611 374,602 367,599 Z" fill="url(#shadow)"/>
+<!-- White neck's foreground edge, rising into a tapered wing -->
+<path d="M 393,581 C 393,526 436,476 483,455 C 507,445 534,442 549,448 C 572,466 608,487 633,506 C 689,549 721,572 746,587 C 667,553 611,529 556,539 C 494,542 444,583 427,661 C 408,642 395,615 393,581 Z" fill="url(#neck)"/>
+<!-- Blue-black eye mask and pointed gannet facial profile -->
+<path d="M 561,282 C 582,266 595,251 610,246 C 641,244 672,255 690,279 C 718,288 834,309 900,325 C 823,312 735,302 646,316 C 622,287 598,277 561,282 Z" fill="#062a47"/>
+<!-- Icy upper beak highlight -->
+<path d="M 653,259 C 729,271 842,302 901,325 C 819,306 734,295 680,284 C 669,279 658,268 653,259 Z" fill="url(#beak)"/>
+<!-- Lower beak -->
+<path d="M 647,316 C 666,287 681,282 694,283 C 757,293 839,310 900,325 C 824,314 746,307 647,316 Z" fill="url(#beak)"/>
+<path d="M 671,283 C 732,289 837,313 900,325 C 808,311 738,301 686,294 Z" fill="#163c5b" opacity=".9"/>
+<!-- Eye rim, iris, pupil, and glint -->
+<path d="M 612,252 C 620,247 634,247 643,254 C 654,262 652,277 643,283 C 633,290 618,286 612,275 C 608,266 609,259 612,252 Z" fill="url(#eye)"/>
+<path d="M 626,253 C 637,248 644,252 646,260 C 647,269 642,275 634,275 C 624,274 620,267 626,253 Z" fill="#002a4a"/>
+<circle cx="641" cy="258" r="6.5" fill="#f5fdff"/>
+<!-- Orbital swoosh; its curves cut in front of the lower bird. -->
+<path d="M 370,625 C 352,643 339,667 345,687 C 350,711 372,722 399,722 C 460,730 582,699 687,654 C 816,599 889,519 919,454 C 935,417 930,392 903,385 C 862,369 783,389 716,411 C 792,394 849,391 882,400 C 934,418 900,477 846,534 C 765,615 610,678 469,686 C 401,694 367,688 364,669 C 361,654 364,638 370,625 Z" fill="url(#ring)"/>
+</g></svg>
