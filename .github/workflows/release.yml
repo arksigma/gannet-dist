@@ -1,0 +1,249 @@
+# Release pipeline for Gannet. It lives on the PUBLIC arksigma/gannet-dist repo
+# so all builds use GitHub's free standard runners (macOS included) instead of
+# consuming the source repo's Actions minutes. The canonical copy is
+# packaging/dist-repo/.github/workflows/release.yml in arksigma/gannet.
+#
+# Flow: checkout arksigma/gannet at the given tag -> build darwin/linux
+# x86_64/arm64 (Linux through cargo-zigbuild pinned to glibc 2.17) -> package
+# gannet_<version>_<platform>.tar.gz with `cargo xtask dist` (CLI, app or
+# Gannet.app, reference plugins, licences) -> GitHub release on this repo ->
+# Casks/gannet.rb pushed to arksigma/homebrew-tap.
+#
+# Triggers:
+#   - repository_dispatch type "release" with {"tag": "vX.Y.Z"}, sent by the
+#     source repo's featherweight dispatcher on tag push
+#   - workflow_dispatch with a `tag` input (manual or recovery runs;
+#     dry_run=true builds without publishing)
+#
+# Secrets required on THIS repo:
+#   RELEASE_GITHUB_TOKEN       - repo scope incl. arksigma/gannet (source checkout)
+#   HOMEBREW_TAP_GITHUB_TOKEN  - repo scope on arksigma/homebrew-tap
+# Optional (macOS signing + notarisation; ad-hoc signature otherwise):
+#   APPLE_SIGNING_IDENTITY, APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
+#   APPLE_ID, TEAM_ID, APP_PASSWORD
+
+name: release
+
+on:
+  repository_dispatch:
+    types: [release]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Source tag to release (e.g. v0.2.0)"
+        required: true
+      dry_run:
+        description: "Build only, skip publishing"
+        type: choice
+        options: ["false", "true"]
+        default: "false"
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_REPO: arksigma/gannet
+  TAP_REPO: arksigma/homebrew-tap
+  RELEASE_TAG: ${{ inputs.tag || github.event.client_payload.tag }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            platform: linux_x86_64
+            zigbuild: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            platform: linux_arm64
+            zigbuild: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            platform: darwin_x86_64
+            zigbuild: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            platform: darwin_arm64
+            zigbuild: false
+    runs-on: ${{ matrix.os }}
+    env:
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          repository: arksigma/gannet
+          ref: ${{ env.RELEASE_TAG }}
+          token: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }},wasm32-wasip2
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ -z "$RELEASE_TAG" ]]; then
+            echo "no release tag provided" >&2
+            exit 1
+          fi
+          crate_version="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p;}' Cargo.toml)"
+          tag_version="${RELEASE_TAG#v}"
+          if [[ "$tag_version" != "$crate_version" ]]; then
+            echo "tag $RELEASE_TAG does not match workspace version $crate_version (run cargo xtask bump)" >&2
+            exit 1
+          fi
+          echo "version=$crate_version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Zig
+        if: matrix.zigbuild
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Install cargo-zigbuild
+        if: matrix.zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      # Nothing links against system libraries: GTK is not used (rfd talks to the
+      # XDG portal), winit dlopens X11/Wayland and glow dlopens libGL, so no apt
+      # packages are needed and aarch64 cross-builds without a sysroot. zigbuild
+      # pins glibc 2.17 so the linux binaries run on old distros.
+      - name: Build (zigbuild)
+        if: matrix.zigbuild
+        run: cargo zigbuild --release --locked --target ${{ matrix.target }}.2.17 -p gannet-cli -p gannet-app
+
+      - name: Build (cargo)
+        if: ${{ !matrix.zigbuild }}
+        run: cargo build --release --locked --target ${{ matrix.target }} -p gannet-cli -p gannet-app
+
+      - name: Build reference plugins
+        run: cargo xtask plugins
+
+      # Portable tarball (+ Gannet.app, ad-hoc or Developer-ID signed, on macOS;
+      # AppDir/deb/rpm are skipped because their tools are absent here).
+      - name: Package
+        run: cargo xtask dist --no-build --target ${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarball-${{ matrix.platform }}
+          path: target/dist/gannet_*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: ${{ (inputs.dry_run || 'false') != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: cd dist && sha256sum ./*.tar.gz > checksums.txt
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$RELEASE_TAG" \
+            --notes "Gannet ${version} — API client with viewer plugins and an S3 browser; reads Bruno collections. Source: https://github.com/${SOURCE_REPO}/blob/v${version}/CHANGELOG.md" \
+            dist/*
+
+      - name: Update Homebrew cask
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          sha() { grep "gannet_${version}_$1.tar.gz" dist/checksums.txt | cut -d' ' -f1; }
+
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${TAP_REPO}.git" tap
+          mkdir -p tap/Casks
+          cat > tap/Casks/gannet.rb <<EOF
+          # This file was generated by the gannet release workflow. DO NOT EDIT.
+          cask "gannet" do
+            version "${version}"
+
+            on_macos do
+              on_intel do
+                sha256 "$(sha darwin_x86_64)"
+                url "https://github.com/${GITHUB_REPOSITORY}/releases/download/v#{version}/gannet_#{version}_darwin_x86_64.tar.gz"
+              end
+              on_arm do
+                sha256 "$(sha darwin_arm64)"
+                url "https://github.com/${GITHUB_REPOSITORY}/releases/download/v#{version}/gannet_#{version}_darwin_arm64.tar.gz"
+              end
+
+              app "Gannet.app"
+              binary "gannet"
+              binary "#{appdir}/Gannet.app/Contents/MacOS/gannet-app", target: "gannet-app"
+
+              caveats <<~CAVEATS
+                Gannet.app is not notarised yet: on first launch right-click it and
+                choose Open, or install with --no-quarantine.
+              CAVEATS
+            end
+
+            on_linux do
+              on_intel do
+                sha256 "$(sha linux_x86_64)"
+                url "https://github.com/${GITHUB_REPOSITORY}/releases/download/v#{version}/gannet_#{version}_linux_x86_64.tar.gz"
+              end
+              on_arm do
+                sha256 "$(sha linux_arm64)"
+                url "https://github.com/${GITHUB_REPOSITORY}/releases/download/v#{version}/gannet_#{version}_linux_arm64.tar.gz"
+              end
+
+              binary "gannet"
+              binary "gannet-app"
+
+              caveats <<~CAVEATS
+                Casks cannot install desktop files on Linux. To add Gannet to your
+                application menu with its icon run:
+                  gannet-app --install-desktop-entry
+              CAVEATS
+            end
+
+            name "Gannet"
+            desc "API client with viewer plugins and an S3 browser; reads Bruno collections"
+            homepage "https://github.com/arksigma/gannet"
+
+            livecheck do
+              skip "Auto-generated on release."
+            end
+
+            zap trash: [
+              "~/.config/gannet",
+              "~/.local/share/gannet",
+              "~/Library/Application Support/gannet",
+            ]
+          end
+          EOF
+
+          cd tap
+          git config user.name "releasebot"
+          git config user.email "bot@users.noreply.github.com"
+          git add Casks/gannet.rb
+          git commit -m "Cask update for gannet version ${RELEASE_TAG}"
+          git push
