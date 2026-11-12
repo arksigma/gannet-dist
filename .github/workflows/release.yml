@@ -71,8 +71,12 @@ jobs:
       - name: Tap token
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        # The repo API reports the account's role, not what a fine-grained
+        # token may do; a dry-run push is authorised exactly like a real one.
         run: |
-          test "$(gh api "repos/$TAP_REPO" --jq .permissions.push)" = true
+          git init -q probe && cd probe
+          git -c user.name=preflight -c user.email=preflight@localhost commit -q --allow-empty -m probe
+          git push --dry-run -q "https://x-access-token:${GH_TOKEN}@github.com/${TAP_REPO}.git" HEAD:refs/heads/gannet-preflight
           echo "HOMEBREW_TAP_GITHUB_TOKEN can push to $TAP_REPO"
       - name: Updater signing key present
         env:

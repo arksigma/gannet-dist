@@ -14,6 +14,7 @@ collections.
 Install via Homebrew (macOS and Linux):
 
 ```sh
+brew trust --cask arksigma/tap/gannet
 brew install --cask arksigma/tap/gannet
 ```
 
