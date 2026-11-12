@@ -183,7 +183,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app="$(find target/dist -maxdepth 3 -name Gannet.app -type d | head -1)"
+          # Check the app as shipped: unpack the release tarball.
+          check="$(mktemp -d)"
+          tar -xzf target/dist/gannet_*_${{ matrix.platform }}.tar.gz -C "$check"
+          app="$(find "$check" -maxdepth 3 -name Gannet.app -type d | head -1)"
+          test -n "$app" || { echo "Gannet.app missing from the tarball" >&2; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$app"
           codesign -dv "$app" 2>&1 | grep -E '^(Authority|TeamIdentifier|Signature)=' || true
           if [ -n "${{ secrets.APPLE_ID }}" ]; then
