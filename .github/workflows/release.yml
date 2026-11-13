@@ -46,6 +46,10 @@ on:
         type: choice
         options: ["false", "true"]
         default: "false"
+      source_run_id:
+        description: "arksigma/gannet release run whose macOS tarballs to use (empty: build macOS here)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -54,6 +58,9 @@ env:
   SOURCE_REPO: arksigma/gannet
   TAP_REPO: arksigma/homebrew-tap
   RELEASE_TAG: ${{ inputs.tag || github.event.client_payload.tag }}
+  # Set when the private source repo already built (and signed) the macOS
+  # tarballs on the self-hosted Mac; see the import-macos job.
+  SOURCE_RUN_ID: ${{ inputs.source_run_id || github.event.client_payload.source_run_id || '' }}
   CARGO_TERM_COLOR: always
 
 jobs:
@@ -145,28 +152,66 @@ jobs:
           path: plugins/*/target/wasm32-wasip2/release/*.wasm
           if-no-files-found: error
 
+  # Which platforms to build here: all four, or Linux only when the macOS
+  # tarballs come from the source repo's self-hosted Mac (SOURCE_RUN_ID).
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      - id: pick
+        run: |
+          linux='{"target":"x86_64-unknown-linux-gnu","os":"ubuntu-latest","platform":"linux_x86_64","zigbuild":true},{"target":"aarch64-unknown-linux-gnu","os":"ubuntu-latest","platform":"linux_arm64","zigbuild":true}'
+          macos='{"target":"x86_64-apple-darwin","os":"macos-latest","platform":"darwin_x86_64","zigbuild":false},{"target":"aarch64-apple-darwin","os":"macos-latest","platform":"darwin_arm64","zigbuild":false}'
+          if [ -n "$SOURCE_RUN_ID" ]; then
+            echo "include=[$linux]" >> "$GITHUB_OUTPUT"
+            echo "macOS tarballs come from arksigma/gannet run $SOURCE_RUN_ID"
+          else
+            echo "include=[$linux,$macos]" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The source repo built, signed and notarised the macOS tarballs on the
+  # self-hosted Mac; fetch them from that run and re-publish them here as the
+  # same artifacts the build matrix would have produced.
+  import-macos:
+    needs: verify-secrets
+    if: ${{ (inputs.source_run_id || github.event.client_payload.source_run_id || '') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download macOS tarballs from arksigma/gannet
+        uses: actions/download-artifact@v4
+        with:
+          repository: arksigma/gannet
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          pattern: tarball-darwin_*
+          path: macos
+          merge-multiple: true
+
+      - name: Check both architectures are there
+        run: |
+          ls -l macos
+          test -s macos/gannet_*_darwin_arm64.tar.gz
+          test -s macos/gannet_*_darwin_x86_64.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball-darwin_arm64
+          path: macos/gannet_*_darwin_arm64.tar.gz
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball-darwin_x86_64
+          path: macos/gannet_*_darwin_x86_64.tar.gz
+          if-no-files-found: error
+
   build:
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            platform: linux_x86_64
-            zigbuild: true
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            platform: linux_arm64
-            zigbuild: true
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            platform: darwin_x86_64
-            zigbuild: false
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            platform: darwin_arm64
-            zigbuild: false
-    needs: [verify-secrets, plugins]
+        include: ${{ fromJSON(needs.targets.outputs.include) }}
+    needs: [verify-secrets, plugins, targets]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout source
@@ -192,7 +237,7 @@ jobs:
           crate_version="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p;}' Cargo.toml)"
           tag_version="${RELEASE_TAG#v}"
           # A dry run may build any branch (e.g. master) to rehearse the pipeline.
-          if [[ "${{ inputs.dry_run || 'false' }}" == "true" && ! "$RELEASE_TAG" =~ ^v[0-9] ]]; then
+          if [[ "${{ (inputs.dry_run || github.event.client_payload.dry_run || 'false') }}" == "true" && ! "$RELEASE_TAG" =~ ^v[0-9] ]]; then
             echo "dry run of $RELEASE_TAG: using workspace version $crate_version"
             tag_version="$crate_version"
           fi
@@ -284,7 +329,8 @@ jobs:
   # inspected (artifact "update-manifest"); a dry run without the secret
   # writes an unsigned manifest, which the app rejects.
   manifest:
-    needs: build
+    needs: [build, import-macos]
+    if: ${{ !cancelled() && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.import-macos.result) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
@@ -316,7 +362,7 @@ jobs:
       - name: Write latest.json
         env:
           UPDATER_SIGNING_KEY: ${{ secrets.UPDATER_SIGNING_KEY }}
-          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          DRY_RUN: ${{ (inputs.dry_run || github.event.client_payload.dry_run || 'false') }}
         run: |
           set -euo pipefail
           sign=(--expect-trusted)
@@ -341,7 +387,7 @@ jobs:
 
   publish:
     needs: [build, manifest]
-    if: ${{ (inputs.dry_run || 'false') != 'true' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.manifest.result == 'success' && (inputs.dry_run || github.event.client_payload.dry_run || 'false') != 'true' }}
     runs-on: ubuntu-latest
     steps:
       # Tarballs and latest.json.
