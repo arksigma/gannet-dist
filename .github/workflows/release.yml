@@ -99,6 +99,36 @@ jobs:
             echo "::warning::partial Apple secrets: the app will be signed but maybe not notarised"
           fi
 
+  # The reference plugins are WebAssembly, identical on every platform, so
+  # they are built once here and shared with the four build jobs. Linux has
+  # to do it: the parquet plugin's zstd codec compiles C for wasm32, which
+  # LLVM's clang can do and Apple's Xcode clang cannot.
+  plugins:
+    needs: verify-secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          repository: arksigma/gannet
+          ref: ${{ env.RELEASE_TAG }}
+          token: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - name: Build reference plugins
+        run: cargo xtask plugins
+
+      - name: Upload plugins
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugins
+          path: plugins/*/target/wasm32-wasip2/release/*.wasm
+          if-no-files-found: error
+
   build:
     strategy:
       fail-fast: true
@@ -120,7 +150,7 @@ jobs:
             os: macos-latest
             platform: darwin_arm64
             zigbuild: false
-    needs: verify-secrets
+    needs: [verify-secrets, plugins]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout source
@@ -188,8 +218,13 @@ jobs:
           GANNET_UPDATE_EXTRA_KEYS: ""
         run: cargo build --release --locked --target ${{ matrix.target }} -p gannet-cli -p gannet-app
 
-      - name: Build reference plugins
-        run: cargo xtask plugins
+      # Same wasm files on every platform (see the plugins job). The artifact
+      # holds <plugin>/target/wasm32-wasip2/release/*.wasm.
+      - name: Reference plugins
+        uses: actions/download-artifact@v4
+        with:
+          name: plugins
+          path: plugins
 
       # Portable tarball (+ Gannet.app, ad-hoc or Developer-ID signed, on macOS;
       # AppDir/deb/rpm are skipped because their tools are absent here).
