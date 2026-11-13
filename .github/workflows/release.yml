@@ -348,8 +348,17 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: tarball-*
           path: dist
           merge-multiple: true
+
+      # Only the tarballs and the manifest are release assets; the shared
+      # plugins artifact must not be uploaded.
+      - name: Download update manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: update-manifest
+          path: dist
 
       - name: Check the manifest is there
         run: test -s dist/latest.json
